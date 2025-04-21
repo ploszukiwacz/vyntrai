@@ -32,6 +32,32 @@
             --rosewater: #f5e0dc;
         }
 
+        .controls {
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+            }
+
+            .clear-button {
+                background-color: var(--red);
+                color: var(--base);
+                padding: 0.5rem 1rem;
+                border-radius: 8px;
+                cursor: pointer;
+                border: none;
+                font-weight: 600;
+                transition: opacity 0.3s ease;
+            }
+
+            .clear-button:hover {
+                opacity: 0.8;
+            }
+
+            .message-timestamp {
+                font-size: 0.8rem;
+                color: var(--subtext0);
+                margin-top: 0.5rem;
+            }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
@@ -254,6 +280,8 @@
     <div class="container">
         <div class="header">
             <h1>VyntrAI Chat</h1>
+            <div class="controls">
+                <button id="clearButton" onclick="clearHistory()" class="clear-button">Clear Chat</button>
             <div class="api-toggle">
                 <span>Google</span>
                 <label class="toggle-switch">
@@ -261,6 +289,7 @@
                     <span class="slider"></span>
                 </label>
                 <span>Groq</span>
+            </div>
             </div>
         </div>
         <div class="chat-box" id="chatBox"></div>
@@ -278,6 +307,7 @@
     <script>
         let isWaitingForResponse = false;
         let currentAPI = 'google';
+        let chatHistory = [];
 
         function handleKeyPress(event) {
             if (event.keyCode === 13 && !event.shiftKey) {
@@ -306,14 +336,27 @@
         }
 
         function appendMessage(message, isUser) {
-            const chatBox = document.getElementById("chatBox");
-            const messageDiv = document.createElement("div");
-            messageDiv.classList.add("message");
-            messageDiv.classList.add(isUser ? "user-message" : "bot-message");
-            messageDiv.innerText = message;
-            chatBox.appendChild(messageDiv);
-            chatBox.scrollTop = chatBox.scrollHeight;
-        }
+                const chatBox = document.getElementById("chatBox");
+                const messageDiv = document.createElement("div");
+                messageDiv.classList.add("message");
+                messageDiv.classList.add(isUser ? "user-message" : "bot-message");
+                messageDiv.innerText = message;
+                chatBox.appendChild(messageDiv);
+                chatBox.scrollTop = chatBox.scrollHeight;
+
+                // Add message to history
+                chatHistory.push({
+                    content: message,
+                    isUser: isUser,
+                    timestamp: new Date().toISOString()
+                });
+            }
+
+            function clearHistory() {
+                    const chatBox = document.getElementById("chatBox");
+                    chatBox.innerHTML = '';
+                    chatHistory = [];  // Clear the history array
+                }
 
         function showTypingIndicator() {
             const chatBox = document.getElementById("chatBox");
@@ -335,47 +378,48 @@
         }
 
         async function sendMessage() {
-            if (isWaitingForResponse) return;
+                if (isWaitingForResponse) return;
 
-            const userInput = document.getElementById("userInput");
-            const message = userInput.value.trim();
-            if (!message) return;
+                const userInput = document.getElementById("userInput");
+                const message = userInput.value.trim();
+                if (!message) return;
 
-            appendMessage(message, true);
-            userInput.value = "";
+                appendMessage(message, true);
+                userInput.value = "";
 
-            isWaitingForResponse = true;
-            setInputState(true);
-            showTypingIndicator();
+                isWaitingForResponse = true;
+                setInputState(true);
+                showTypingIndicator();
 
-            try {
-                const response = await fetch("/chat", {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        message: message,
-                        api: currentAPI
-                    })
-                });
+                try {
+                    const response = await fetch("/chat", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({
+                            message: message,
+                            api: currentAPI,
+                            history: chatHistory  // Send history with the request
+                        })
+                    });
 
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    removeTypingIndicator();
+                    appendMessage(data.response, false);
+                } catch (error) {
+                    removeTypingIndicator();
+                    console.error("Error:", error);
+                    appendMessage("Oops! Something went wrong. Please try again.", false);
+                } finally {
+                    isWaitingForResponse = false;
+                    setInputState(false);
                 }
-
-                const data = await response.json();
-                removeTypingIndicator();
-                appendMessage(data.response, false);
-            } catch (error) {
-                removeTypingIndicator();
-                console.error("Error:", error);
-                appendMessage("Oops! Something went wrong. Please try again.", false);
-            } finally {
-                isWaitingForResponse = false;
-                setInputState(false);
             }
-        }
 
         // Focus input on load
         window.onload = () => {

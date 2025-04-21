@@ -2,3 +2,5 @@ google-genai
 python-dotenv
 Flask
 groq
+requests
+duckduckgo-search
