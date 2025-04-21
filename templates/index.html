@@ -274,6 +274,29 @@
             0%, 100% { transform: translateY(0); }
             50% { transform: translateY(-10px); }
         }
+
+        .rate-limit-info {
+                background: var(--surface0);
+                padding: 0.5rem 1rem;
+                border-radius: 8px;
+                font-size: 0.9rem;
+                color: var(--subtext1);
+                display: flex;
+                gap: 1rem;
+            }
+
+            .rate-limit-minute, .rate-limit-daily {
+                padding: 0.25rem 0.5rem;
+                border-radius: 4px;
+            }
+
+            .rate-limit-minute {
+                background: var(--surface1);
+            }
+
+            .rate-limit-daily {
+                background: var(--surface1);
+            }
     </style>
 </head>
 <body>
@@ -308,6 +331,43 @@
         let isWaitingForResponse = false;
         let currentAPI = 'google';
         let chatHistory = [];
+        let rateLimitInterval = null;
+
+        async function updateRateLimitStatus() {
+            try {
+                const response = await fetch("/rate-limit-status");
+
+                if (response.status === 429) {
+                  return;
+                }
+
+                const headers = response.headers;
+                const data = await response.json();
+
+                // Update UI with rate limit info
+                const headerDiv = document.querySelector('.header');
+                const rateInfoDiv = headerDiv.querySelector('.rate-limit-info') || document.createElement('div');
+                rateInfoDiv.className = 'rate-limit-info';
+
+                rateInfoDiv.innerHTML = `
+                    <div class="rate-limit-minute">
+                        Minute: ${data.minute_limit.remaining}/${data.minute_limit.limit}
+                        (Reset in ${data.minute_limit.reset}s)
+                    </div>
+                    <div class="rate-limit-daily">
+                        Daily: ${data.daily_limit.remaining}/${data.daily_limit.limit}
+                        (Reset in ${Math.floor(data.daily_limit.reset/60)}m)
+                    </div>
+                `;
+
+                if (!headerDiv.querySelector('.rate-limit-info')) {
+                    headerDiv.appendChild(rateInfoDiv);
+                }
+            } catch (error) {
+                console.error("Error fetching rate limit status:", error);
+            }
+        }
+
 
         function handleKeyPress(event) {
             if (event.keyCode === 13 && !event.shiftKey) {
@@ -378,48 +438,66 @@
         }
 
         async function sendMessage() {
-                if (isWaitingForResponse) return;
+            if (isWaitingForResponse) return;
 
-                const userInput = document.getElementById("userInput");
-                const message = userInput.value.trim();
-                if (!message) return;
+            const userInput = document.getElementById("userInput");
+            const message = userInput.value.trim();
+            if (!message) return;
 
-                appendMessage(message, true);
-                userInput.value = "";
+            appendMessage(message, true);
+            userInput.value = "";
 
-                isWaitingForResponse = true;
-                setInputState(true);
-                showTypingIndicator();
+            isWaitingForResponse = true;
+            setInputState(true);
+            showTypingIndicator();
 
-                try {
-                    const response = await fetch("/chat", {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({
-                            message: message,
-                            api: currentAPI,
-                            history: chatHistory  // Send history with the request
-                        })
-                    });
+            try {
+                const response = await fetch("/chat", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        api: currentAPI,
+                        history: chatHistory
+                    })
+                });
 
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-
+                if (response.status === 429) {
                     const data = await response.json();
                     removeTypingIndicator();
-                    appendMessage(data.response, false);
-                } catch (error) {
-                    removeTypingIndicator();
-                    console.error("Error:", error);
-                    appendMessage("Oops! Something went wrong. Please try again.", false);
-                } finally {
-                    isWaitingForResponse = false;
-                    setInputState(false);
+                    const resetTime = Math.ceil(data.reset_in_seconds);
+                    const timeUnit = data.type === 'minute' ? 'minute' : 'day';
+                    appendMessage(`Rate limit exceeded. Please wait ${resetTime} seconds. (${timeUnit} limit)`, false);
+                    updateRateLimitStatus();
+                    return;
                 }
+
+                const data = await response.json();
+                removeTypingIndicator();
+                appendMessage(data.response, false);
+                updateRateLimitStatus();
+
+            } catch (error) {
+                removeTypingIndicator();
+                console.error("Error:", error);
+                appendMessage("Oops! Something went wrong. Please try again.", false);
+            } finally {
+                isWaitingForResponse = false;
+                setInputState(false);
             }
+        }
+
+        rateLimitInterval = setInterval(updateRateLimitStatus, 1000 * 30);
+        updateRateLimitStatus();  // Initial update
+
+        // Cleanup on page unload
+        window.addEventListener('unload', () => {
+            if (rateLimitInterval) {
+                clearInterval(rateLimitInterval);
+            }
+        });
 
         // Focus input on load
         window.onload = () => {

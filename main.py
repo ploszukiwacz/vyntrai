@@ -1,3 +1,4 @@
+from flask_cors import CORS
 from google import genai
 from dotenv import load_dotenv
 import os
@@ -6,10 +7,139 @@ import groq
 from duckduckgo_search import DDGS
 import re
 from datetime import datetime
+from functools import wraps
+from collections import defaultdict
+import time
 
 load_dotenv()
 
 app = Flask("VyntrAI")
+CORS(app, resources={
+    r"/chat": {
+        "origins": [
+            "http://localhost:5000",
+            f"http://localhost:{os.getenv('PORT')}",
+            "https://vai.ploszukiwacz.hackclub.app"
+        ],
+        "methods": ["GET", "POST"],
+        "allow_headers": ["Content-Type"]
+    }
+})
+
+MINUTE_RATE_LIMIT = 5
+DAILY_RATE_LIMIT = 1000
+STATUS_RATE_LIMIT = 2
+RATE_LIMIT_STORAGE = {
+    'minute': defaultdict(list),
+    'day': defaultdict(list),
+    'status': defaultdict(list)
+}
+
+def get_remote_address():
+    """Get the client's IP address"""
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0]
+    return request.remote_addr
+def rate_limit(minute_limit=MINUTE_RATE_LIMIT, daily_limit=DAILY_RATE_LIMIT):
+        def decorator(f):
+            @wraps(f)
+            def decorated_function(*args, **kwargs):
+                ip = get_remote_address()
+                now = time.time()
+
+                stats = get_rate_limit_stats(ip)
+                minute_requests = stats['minute']['current']
+                daily_requests = stats['day']['current']
+
+                # Prepare headers
+                response_headers = {
+                    'X-RateLimit-Limit-Minute': str(minute_limit),
+                    'X-RateLimit-Remaining-Minute': str(max(0, minute_limit - minute_requests)),
+                    'X-RateLimit-Limit-Daily': str(daily_limit),
+                    'X-RateLimit-Remaining-Daily': str(max(0, daily_limit - daily_requests))
+                }
+
+                # Check if limits are exceeded
+                if minute_requests >= minute_limit:
+                    reset_time = stats['minute']['reset']
+                    response_headers['Retry-After'] = str(int(reset_time))
+                    return jsonify({
+                        'error': 'Rate limit exceeded',
+                        'reset_in_seconds': int(reset_time),
+                        'type': 'minute'
+                    }), 429, response_headers
+
+                if daily_requests >= daily_limit:
+                    reset_time = stats['day']['reset']
+                    response_headers['Retry-After'] = str(int(reset_time))
+                    return jsonify({
+                        'error': 'Daily rate limit exceeded',
+                        'reset_in_seconds': int(reset_time),
+                        'type': 'day'
+                    }), 429, response_headers
+
+                # Add current request timestamp
+                RATE_LIMIT_STORAGE['minute'][ip].append(now)
+                RATE_LIMIT_STORAGE['day'][ip].append(now)
+
+                # Call the original route function
+                response = f(*args, **kwargs)
+
+                # Add rate limit headers to response
+                if isinstance(response, tuple):
+                    response_obj, status_code = response
+                    return response_obj, status_code, response_headers
+                return response, 200, response_headers
+
+            return decorated_function
+        return decorator
+def check_status_rate_limit(ip):
+            """Check rate limit for status endpoint"""
+            now = time.time()
+            second_ago = now - 1
+
+            # Clean old status checks
+            RATE_LIMIT_STORAGE['status'][ip] = [
+                t for t in RATE_LIMIT_STORAGE['status'][ip] if t > second_ago
+            ]
+
+            # Check if limit exceeded
+            if len(RATE_LIMIT_STORAGE['status'][ip]) >= STATUS_RATE_LIMIT:
+                return True
+
+            # Add current check
+            RATE_LIMIT_STORAGE['status'][ip].append(now)
+            return False
+
+def get_rate_limit_stats(ip):
+            """Get current rate limit statistics without modifying counts"""
+            now = time.time()
+            minute_ago = now - 60
+            day_ago = now - 86400
+
+            # Clean up old entries
+            RATE_LIMIT_STORAGE['minute'][ip] = [
+                t for t in RATE_LIMIT_STORAGE['minute'][ip] if t > minute_ago
+            ]
+            RATE_LIMIT_STORAGE['day'][ip] = [
+                t for t in RATE_LIMIT_STORAGE['day'][ip] if t > day_ago
+            ]
+
+            minute_requests = len(RATE_LIMIT_STORAGE['minute'][ip])
+            daily_requests = len(RATE_LIMIT_STORAGE['day'][ip])
+
+            return {
+                'minute': {
+                    'current': minute_requests,
+                    'reset': min(RATE_LIMIT_STORAGE['minute'][ip]) + 60 - now if RATE_LIMIT_STORAGE['minute'][ip] else 60
+                },
+                'day': {
+                    'current': daily_requests,
+                    'reset': min(RATE_LIMIT_STORAGE['day'][ip]) + 86400 - now if RATE_LIMIT_STORAGE['day'][ip] else 86400
+                }
+            }
+
+
 google_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 groq_client = groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
 
@@ -89,7 +219,34 @@ def perform_web_search(query, num_results=5):
         print(f"Search error: {e}")
         return []
 
+@app.route("/rate-limit-status")
+def rate_limit_status():
+    ip = get_remote_address()
+
+    # Check status endpoint rate limit
+    if check_status_rate_limit(ip):
+        return jsonify({
+            'error': 'Status check rate limit exceeded',
+            'retry_after': 1
+        }), 429
+
+    stats = get_rate_limit_stats(ip)
+
+    return jsonify({
+        'minute_limit': {
+            'limit': MINUTE_RATE_LIMIT,
+            'remaining': max(0, MINUTE_RATE_LIMIT - stats['minute']['current']),
+            'reset': int(stats['minute']['reset'])
+        },
+        'daily_limit': {
+            'limit': DAILY_RATE_LIMIT,
+            'remaining': max(0, DAILY_RATE_LIMIT - stats['day']['current']),
+            'reset': int(stats['day']['reset'])
+        }
+    })
+
 @app.route("/chat", methods=["POST"])
+@rate_limit(minute_limit=MINUTE_RATE_LIMIT, daily_limit=DAILY_RATE_LIMIT)
 def chat():
     try:
         data = request.get_json()

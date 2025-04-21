@@ -4,3 +4,4 @@ Flask
 groq
 requests
 duckduckgo-search
+flask_cors
