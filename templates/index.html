@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VyntrAI Chat</title>
+    <style>
+        :root {
+            /* Catppuccin Mocha Colors */
+            --base: #1e1e2e;
+            --mantle: #181825;
+            --crust: #11111b;
+            --text: #cdd6f4;
+            --subtext1: #bac2de;
+            --subtext0: #a6adc8;
+            --surface2: #585b70;
+            --surface1: #45475a;
+            --surface0: #313244;
+            --overlay0: #6c7086;
+            --blue: #89b4fa;
+            --lavender: #b4befe;
+            --sapphire: #74c7ec;
+            --sky: #89dceb;
+            --teal: #94e2d5;
+            --green: #a6e3a1;
+            --peach: #fab387;
+            --maroon: #eba0ac;
+            --red: #f38ba8;
+            --mauve: #cba6f7;
+            --pink: #f5c2e7;
+            --flamingo: #f2cdcd;
+            --rosewater: #f5e0dc;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--base);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 2rem auto;
+            padding: 0 20px;
+        }
+
+        textarea:disabled {
+            background-color: var(--crust);
+            color: var(--surface2);
+            cursor: not-allowed;
+        }
+
+        button:disabled {
+            background-color: var(--surface1);
+            color: var(--surface2);
+            cursor: not-allowed;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+
+        h1 {
+            color: var(--mauve);
+            margin: 0;
+            font-size: 2.5rem;
+        }
+
+        .api-toggle {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            background: var(--surface0);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--surface1);
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: var(--blue);
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: var(--mauve);
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .chat-box {
+            background: var(--mantle);
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            height: 500px;
+            overflow-y: auto;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .message {
+            margin-bottom: 1rem;
+            padding: 1rem;
+            border-radius: 10px;
+            max-width: 80%;
+            animation: fadeIn 0.3s ease-in;
+        }
+
+        .user-message {
+            background-color: var(--surface0);
+            margin-left: auto;
+            border-bottom-right-radius: 4px;
+            color: var(--sky);
+        }
+
+        .bot-message {
+            background-color: var(--surface1);
+            margin-right: auto;
+            border-bottom-left-radius: 4px;
+            color: var(--green);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 1rem;
+            background: var(--surface0);
+            padding: 1rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+        }
+
+        textarea {
+            flex: 1;
+            padding: 1rem;
+            border: 2px solid var(--surface1);
+            border-radius: 8px;
+            font-size: 1rem;
+            resize: none;
+            transition: border-color 0.3s ease;
+            background: var(--mantle);
+            color: var(--text);
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: var(--mauve);
+        }
+
+        button {
+            padding: 0 1.5rem;
+            background-color: var(--mauve);
+            color: var(--base);
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+
+        button:hover {
+            background-color: var(--pink);
+        }
+
+        button:disabled {
+            background-color: var(--surface1);
+            cursor: not-allowed;
+        }
+
+        .typing-indicator {
+            display: flex;
+            padding: 0.5rem;
+            gap: 0.3rem;
+            margin-bottom: 1rem;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--mauve);
+            border-radius: 50%;
+            animation: typing 1s infinite ease-in-out;
+        }
+
+        /* Custom scrollbar */
+        .chat-box::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .chat-box::-webkit-scrollbar-track {
+            background: var(--surface0);
+            border-radius: 10px;
+        }
+
+        .chat-box::-webkit-scrollbar-thumb {
+            background: var(--surface2);
+            border-radius: 10px;
+        }
+
+        .chat-box::-webkit-scrollbar-thumb:hover {
+            background: var(--overlay0);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes typing {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>VyntrAI Chat</h1>
+            <div class="api-toggle">
+                <span>Google</span>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="apiToggle" onclick="toggleAPI()">
+                    <span class="slider"></span>
+                </label>
+                <span>Groq</span>
+            </div>
+        </div>
+        <div class="chat-box" id="chatBox"></div>
+        <div class="input-container">
+            <textarea
+                id="userInput"
+                rows="2"
+                placeholder="Type your message..."
+                onkeydown="handleKeyPress(event)">
+            </textarea>
+            <button id="sendButton" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let isWaitingForResponse = false;
+        let currentAPI = 'google';
+
+        function handleKeyPress(event) {
+            if (event.keyCode === 13 && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        function toggleAPI() {
+            currentAPI = document.getElementById('apiToggle').checked ? 'groq' : 'google';
+            console.log('Switched to:', currentAPI);
+        }
+
+        function setInputState(disabled) {
+            const userInput = document.getElementById("userInput");
+            const sendButton = document.getElementById("sendButton");
+            userInput.disabled = disabled;
+            sendButton.disabled = disabled;
+            if (disabled) {
+                userInput.style.cursor = 'not-allowed';
+                sendButton.style.cursor = 'not-allowed';
+            } else {
+                userInput.style.cursor = 'text';
+                sendButton.style.cursor = 'pointer';
+            }
+        }
+
+        function appendMessage(message, isUser) {
+            const chatBox = document.getElementById("chatBox");
+            const messageDiv = document.createElement("div");
+            messageDiv.classList.add("message");
+            messageDiv.classList.add(isUser ? "user-message" : "bot-message");
+            messageDiv.innerText = message;
+            chatBox.appendChild(messageDiv);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function showTypingIndicator() {
+            const chatBox = document.getElementById("chatBox");
+            const indicator = document.createElement("div");
+            indicator.classList.add("typing-indicator");
+            indicator.innerHTML = `
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            `;
+            indicator.id = "typingIndicator";
+            chatBox.appendChild(indicator);
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            const indicator = document.getElementById("typingIndicator");
+            if (indicator) indicator.remove();
+        }
+
+        async function sendMessage() {
+            if (isWaitingForResponse) return;
+
+            const userInput = document.getElementById("userInput");
+            const message = userInput.value.trim();
+            if (!message) return;
+
+            appendMessage(message, true);
+            userInput.value = "";
+
+            isWaitingForResponse = true;
+            setInputState(true);
+            showTypingIndicator();
+
+            try {
+                const response = await fetch("/chat", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        message: message,
+                        api: currentAPI
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                removeTypingIndicator();
+                appendMessage(data.response, false);
+            } catch (error) {
+                removeTypingIndicator();
+                console.error("Error:", error);
+                appendMessage("Oops! Something went wrong. Please try again.", false);
+            } finally {
+                isWaitingForResponse = false;
+                setInputState(false);
+            }
+        }
+
+        // Focus input on load
+        window.onload = () => {
+            document.getElementById("userInput").focus();
+        }
+    </script>
+</body>
+</html>
